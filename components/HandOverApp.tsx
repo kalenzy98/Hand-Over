@@ -9,148 +9,29 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useRouter } from "next/navigation";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+import type { HandoverEvent } from "@/lib/events";
 
 type EventStatus = "open" | "closed";
-type TimelineEntry = { author: string; at: string; text: string };
-type HandoverEvent = {
-  id: string;
-  title: string;
-  date: string;
-  createdAt: string;
-  creator: string;
-  status: EventStatus;
-  details: string;
-  timeline: TimelineEntry[];
-};
 type Filter = "all" | EventStatus;
 type DialogMode = "new" | "edit" | "update";
+type AppUser = { id: string; email: string; displayName: string };
+type HandOverAppProps = {
+  screen: "login" | "signup" | "forgot" | "reset" | "dashboard";
+  authConfigured: boolean;
+  initialUser?: AppUser;
+  initialEvents?: HandoverEvent[];
+  initialError?: string;
+};
 
-const STORAGE_KEY = "handover-demo-v1";
 const VIDEO_URL =
   "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260912_104036_bd6924f6-3c8e-417e-8465-6d03c8c2e9e6.mp4";
 const VIDEO_POSTER =
   "https://d2ol7oe51mr4n9.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/82e7eb75-c65f-490a-99b5-f3d1cad54200.webp";
 
-function dayOffset(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString();
-}
-
-function dayOffsetAtNoon(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  date.setHours(12, 0, 0, 0);
-  return date.toISOString();
-}
-
 function isValidTimestamp(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
-}
-
-function normalizeRecords(value: unknown): HandoverEvent[] {
-  if (!Array.isArray(value)) return sampleEvents();
-
-  const fallbackTime = new Date().toISOString();
-  return value.map((item: unknown, index): HandoverEvent => {
-    const raw = item && typeof item === "object" ? (item as Partial<HandoverEvent>) : {};
-    const createdAt = isValidTimestamp(raw.createdAt) ? raw.createdAt : fallbackTime;
-    const timeline: TimelineEntry[] = Array.isArray(raw.timeline)
-      ? raw.timeline.map((entry: unknown) => {
-          const rawEntry =
-            entry && typeof entry === "object"
-              ? (entry as Partial<TimelineEntry>)
-              : {};
-          return {
-            author: typeof rawEntry.author === "string" ? rawEntry.author : "غير معروف",
-            at: isValidTimestamp(rawEntry.at) ? rawEntry.at : createdAt,
-            text: typeof rawEntry.text === "string" ? rawEntry.text : "",
-          };
-        })
-      : [];
-
-    return {
-      id: typeof raw.id === "string" && raw.id ? raw.id : `legacy-${index}`,
-      title: typeof raw.title === "string" ? raw.title : "حدث سابق",
-      date:
-        typeof raw.date === "string" && Number.isFinite(Date.parse(`${raw.date}T12:00:00`))
-          ? raw.date
-          : createdAt.slice(0, 10),
-      createdAt,
-      creator: typeof raw.creator === "string" ? raw.creator : "غير معروف",
-      status: raw.status === "closed" ? "closed" : "open",
-      details: typeof raw.details === "string" ? raw.details : "",
-      timeline,
-    };
-  });
-}
-
-function sampleEvents(): HandoverEvent[] {
-  return [
-    {
-      id: "evt-fire",
-      title: "حريق في المستودع الشرقي",
-      date: dayOffset(-1).slice(0, 10),
-      createdAt: dayOffset(-1),
-      creator: "خالد",
-      status: "closed",
-      details: "ورد بلاغ عن تصاعد دخان من المستودع الشرقي. تم إخلاء المنطقة وإبلاغ فريق السلامة.",
-      timeline: [
-        {
-          author: "خالد",
-          at: dayOffset(-1),
-          text: "ورد البلاغ عند بداية المناوبة. تم إخلاء المستودع وإبعاد العاملين عن الموقع.",
-        },
-        {
-          author: "ناصر",
-          at: dayOffsetAtNoon(-1),
-          text: "وصل فريق السلامة، وتمت السيطرة على الحريق. لا توجد إصابات، والموقع آمن.",
-        },
-      ],
-    },
-    {
-      id: "evt-wall",
-      title: "انهيار جزئي في سور المبنى B",
-      date: dayOffset(0).slice(0, 10),
-      createdAt: dayOffset(-0.12),
-      creator: "خالد",
-      status: "open",
-      details: "انهار جزء من السور الخارجي قرب بوابة الخدمة. المنطقة محاطة بشريط تحذيري لحين المعاينة.",
-      timeline: [
-        {
-          author: "خالد",
-          at: dayOffset(-0.12),
-          text: "أُبلغ عن سقوط جزء من السور. أُغلقت بوابة الخدمة مؤقتًا وأُبعد المارّة عن المنطقة.",
-        },
-        {
-          author: "ناصر",
-          at: dayOffset(-0.06),
-          text: "وصل فريق الصيانة وبدأ المعاينة. يُرجى إبقاء البوابة مغلقة حتى اكتمال الفحص.",
-        },
-      ],
-    },
-    {
-      id: "evt-power",
-      title: "انقطاع التيار عن غرفة التحكم",
-      date: dayOffset(-2).slice(0, 10),
-      createdAt: dayOffset(-2),
-      creator: "ناصر",
-      status: "closed",
-      details: "انقطع التيار الاحتياطي في غرفة التحكم لفترة قصيرة، مع استمرار الأنظمة الأساسية في العمل.",
-      timeline: [
-        {
-          author: "ناصر",
-          at: dayOffset(-2),
-          text: "تم رصد الانقطاع وتحويل التغذية إلى المصدر الاحتياطي.",
-        },
-        {
-          author: "سارة",
-          at: dayOffset(-1.8),
-          text: "أُعيد التيار وفُحصت الأنظمة. جميعها تعمل بصورة طبيعية.",
-        },
-      ],
-    },
-  ];
 }
 
 function formatDate(value: string): string {
@@ -170,6 +51,16 @@ function formatTime(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function authErrorMessage(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid login credentials")) return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+  if (normalized.includes("user already registered")) return "هذا البريد مسجل بالفعل. سجّل الدخول بدلًا من إنشاء حساب جديد.";
+  if (normalized.includes("email not confirmed")) return "أكد بريدك الإلكتروني من الرسالة المرسلة إليك قبل تسجيل الدخول.";
+  if (normalized.includes("password should be")) return "كلمة المرور لا تحقق متطلبات الأمان.";
+  if (normalized.includes("rate limit") || normalized.includes("too many requests")) return "محاولات كثيرة خلال وقت قصير. انتظر قليلًا ثم أعد المحاولة.";
+  return "تعذر إكمال العملية. تحقق من البيانات وحالة خدمة المصادقة ثم حاول مجددًا.";
 }
 
 function lastActivity(record: HandoverEvent): string {
@@ -208,19 +99,28 @@ function LockIcon() {
   );
 }
 
-export default function HandOverApp() {
+export default function HandOverApp({
+  screen,
+  authConfigured,
+  initialUser,
+  initialEvents = [],
+  initialError = "",
+}: HandOverAppProps) {
+  const router = useRouter();
   const [activeVideo, setActiveVideo] = useState<"a" | "b">("a");
   const videoA = useRef<HTMLVideoElement>(null);
   const videoB = useRef<HTMLVideoElement>(null);
-  const [isDashboard, setIsDashboard] = useState(false);
+  const isDashboard = screen === "dashboard";
   const [showPassword, setShowPassword] = useState(false);
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [currentUser, setCurrentUser] = useState("خالد");
-  const [records, setRecords] = useState<HandoverEvent[]>([]);
-  const [storageLoaded, setStorageLoaded] = useState(false);
+  const [records, setRecords] = useState<HandoverEvent[]>(initialEvents);
+  const [notice, setNotice] = useState(initialError);
+  const [pendingRecordId, setPendingRecordId] = useState("");
   const [activeFilter, setActiveFilter] = useState<Filter>("all");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>("new");
@@ -228,6 +128,7 @@ export default function HandOverApp() {
   const [eventTitle, setEventTitle] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventDetails, setEventDetails] = useState("");
+  const currentUser = initialUser?.displayName ?? "مستخدم";
 
   const visibleRecords = useMemo(
     () =>
@@ -240,26 +141,6 @@ export default function HandOverApp() {
         ),
     [activeFilter, records],
   );
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      const parsed: unknown = saved ? JSON.parse(saved) : null;
-      setRecords(normalizeRecords(parsed));
-    } catch {
-      setRecords(sampleEvents());
-    }
-    setStorageLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!storageLoaded) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    } catch {
-      // The demo remains usable if browser storage is unavailable.
-    }
-  }, [records, storageLoaded]);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -349,22 +230,76 @@ export default function HandOverApp() {
     };
   }, []);
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoginMessage("");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    setSuccessMessage("");
+    if (!authConfigured) {
+      setLoginMessage("لم تُربط خدمة المصادقة بعد. أضف إعدادات Supabase أولًا.");
+      return;
+    }
+    if (screen !== "reset" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setLoginMessage("تحقق من كتابة بريد إلكتروني صحيح.");
       return;
     }
-    if (password.length < 8) {
+    if (screen === "signup" && !displayName.trim()) {
+      setLoginMessage("أدخل اسمك ليظهر في سجل إنشاء الأحداث وتحديثاتها.");
+      return;
+    }
+    if (screen !== "forgot" && password.length < 8) {
       setLoginMessage("أدخل كلمة مرور لا تقل عن 8 أحرف.");
       return;
     }
     setLoginLoading(true);
-    window.setTimeout(() => {
+    try {
+      const supabase = createSupabaseClient();
+      if (screen === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        });
+        if (error) setLoginMessage(authErrorMessage(error.message));
+        else setSuccessMessage("إذا كان الحساب مسجلًا، ستصلك رسالة لإعادة تعيين كلمة المرور.");
+      } else if (screen === "reset") {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) setLoginMessage(authErrorMessage(error.message));
+        else {
+          setSuccessMessage("تم تحديث كلمة المرور. يمكنك الآن تسجيل الدخول.");
+          setPassword("");
+        }
+      } else if (screen === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: { full_name: displayName.trim() },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+        if (error) {
+          setLoginMessage(authErrorMessage(error.message));
+        } else if (data.session) {
+          router.replace("/dashboard");
+          router.refresh();
+        } else {
+          setSuccessMessage("تم إنشاء الحساب. تحقق من بريدك الإلكتروني لتأكيده ثم سجّل الدخول.");
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) {
+          setLoginMessage(authErrorMessage(error.message));
+        } else {
+          router.replace("/dashboard");
+          router.refresh();
+        }
+      }
+    } catch {
+      setLoginMessage("تعذر الاتصال بخدمة المصادقة. تحقق من الإعدادات والاتصال.");
+    } finally {
       setLoginLoading(false);
-      setIsDashboard(true);
-    }, 500);
+    }
   }
 
   function openDialog(mode: DialogMode, record?: HandoverEvent) {
@@ -381,76 +316,116 @@ export default function HandOverApp() {
     dialogRef.current?.showModal();
   }
 
-  function saveEvent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const now = new Date().toISOString();
-    const details = eventDetails.trim();
-    const title = eventTitle.trim();
-    if (!details) return;
-
-    if (dialogMode === "new") {
-      const id =
-        window.crypto?.randomUUID?.() ??
-        `evt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      setRecords((current) => [
-        ...current,
-        {
-          id,
-          title,
-          date: eventDate,
-          createdAt: now,
-          creator: currentUser,
-          status: "open",
-          details,
-          timeline: [{ author: currentUser, at: now, text: details }],
-        },
-      ]);
-    } else {
-      setRecords((current) =>
-        current.map((record) => {
-          if (record.id !== dialogRecordId) return record;
-          if (dialogMode === "edit") {
-            return {
-              ...record,
-              title,
-              date: eventDate,
-              details,
-              timeline: [
-                ...record.timeline,
-                { author: currentUser, at: now, text: "تم تعديل عنوان الحدث وتفاصيله." },
-              ],
-            };
-          }
-          return {
-            ...record,
-            timeline: [...record.timeline, { author: currentUser, at: now, text: details }],
-          };
-        }),
-      );
+  async function readApiError(response: Response, fallback: string): Promise<string> {
+    try {
+      const result: unknown = await response.json();
+      if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
+        return result.error;
+      }
+    } catch {
+      // The route may return a non-JSON gateway error.
     }
-    dialogRef.current?.close();
+    return fallback;
   }
 
-  function toggleStatus(id: string) {
-    const now = new Date().toISOString();
-    setRecords((current) =>
-      current.map((record) => {
-        if (record.id !== id) return record;
-        const status: EventStatus = record.status === "open" ? "closed" : "open";
-        return {
-          ...record,
-          status,
-          timeline: [
-            ...record.timeline,
-            {
-              author: currentUser,
-              at: now,
-              text: status === "closed" ? "تم إغلاق الحدث." : "تمت إعادة فتح الحدث.",
-            },
-          ],
-        };
-      }),
-    );
+  async function refreshEvents() {
+    const response = await fetch("/api/events", { cache: "no-store" });
+    if (!response.ok) throw new Error(await readApiError(response, "تعذر تحديث قائمة الأحداث."));
+    const result = (await response.json()) as { events: HandoverEvent[] };
+    setRecords(result.events);
+  }
+
+  async function saveEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const details = eventDetails.trim();
+    const title = eventTitle.trim();
+    if (!details || (dialogMode !== "update" && (!title || !eventDate))) return;
+    setPendingRecordId(dialogRecordId || "new");
+    setNotice("");
+    try {
+      let response: Response;
+      if (dialogMode === "new") {
+        response = await fetch("/api/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, date: eventDate, details }),
+        });
+      } else if (dialogMode === "edit") {
+        const existing = records.find((record) => record.id === dialogRecordId);
+        if (!existing) throw new Error("الحدث غير موجود في القائمة الحالية.");
+        response = await fetch(`/api/events/${encodeURIComponent(dialogRecordId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, date: eventDate, details, status: existing.status }),
+        });
+      } else {
+        response = await fetch(`/api/events/${encodeURIComponent(dialogRecordId)}/updates`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: details }),
+        });
+      }
+      if (!response.ok) throw new Error(await readApiError(response, "تعذر حفظ التغييرات."));
+      await refreshEvents();
+      dialogRef.current?.close();
+      setNotice("تم حفظ التغييرات بنجاح.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "حدث خطأ أثناء حفظ التغييرات.");
+    } finally {
+      setPendingRecordId("");
+    }
+  }
+
+  async function toggleStatus(record: HandoverEvent) {
+    const status: EventStatus = record.status === "open" ? "closed" : "open";
+    setPendingRecordId(record.id);
+    setNotice("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(record.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: record.title, date: record.date, details: record.details, status }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "تعذر تغيير حالة الحدث."));
+      await refreshEvents();
+      setNotice("تم تحديث حالة الحدث.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "حدث خطأ أثناء تحديث الحالة.");
+    } finally {
+      setPendingRecordId("");
+    }
+  }
+
+  async function deleteEvent(record: HandoverEvent) {
+    if (!window.confirm(`هل أنت متأكد من حذف الحدث «${record.title}»؟ لا يمكن التراجع عن الحذف.`)) return;
+    setPendingRecordId(record.id);
+    setNotice("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(record.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await readApiError(response, "تعذر حذف الحدث."));
+      setRecords((current) => current.filter((item) => item.id !== record.id));
+      setNotice("تم حذف الحدث بنجاح.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "حدث خطأ أثناء حذف الحدث.");
+    } finally {
+      setPendingRecordId("");
+    }
+  }
+
+  async function handleLogout() {
+    setLoginMessage("");
+    try {
+      const supabase = createSupabaseClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setNotice("تعذر تسجيل الخروج. حاول مجددًا.");
+        return;
+      }
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setNotice("تعذر تسجيل الخروج بسبب مشكلة في الاتصال.");
+    }
   }
 
   function handleCardPointer(event: ReactPointerEvent<HTMLElement>) {
@@ -525,80 +500,134 @@ export default function HandOverApp() {
           <div className="card-mark" aria-hidden="true">
             <LockIcon />
           </div>
-          <p className="kicker">مرحبًا بعودتك</p>
-          <h1 id="login-title">تسجيل الدخول</h1>
-          <p className="intro">أدخل بيانات حساب العمل لمتابعة تسليم المناوبة مع فريقك.</p>
+          <p className="kicker">
+            {screen === "signup" ? "انضم إلى فريق العمل" : screen === "login" ? "مرحبًا بعودتك" : "استعادة الوصول"}
+          </p>
+          <h1 id="login-title">
+            {screen === "signup" ? "إنشاء حساب" : screen === "forgot" ? "نسيت كلمة المرور؟" : screen === "reset" ? "تعيين كلمة مرور جديدة" : "تسجيل الدخول"}
+          </h1>
+          <p className="intro">
+            {screen === "signup"
+              ? "أنشئ حسابك للبدء في متابعة الأحداث وتسليم المناوبة."
+              : screen === "forgot"
+                ? "أدخل بريدك الإلكتروني وسنرسل لك رابطًا آمنًا لإعادة التعيين."
+                : screen === "reset"
+                  ? "اختر كلمة مرور جديدة لحسابك."
+                  : "أدخل بيانات حساب العمل لمتابعة تسليم المناوبة مع فريقك."}
+          </p>
           <form id="login-form" noValidate onSubmit={handleLogin}>
-            <div className="field">
-              <label htmlFor="email">البريد الإلكتروني</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="username"
-                placeholder="name@company.com"
-                required
-                aria-describedby="form-message"
-                value={email}
-                aria-invalid={loginMessage.includes("بريد إلكتروني") || undefined}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setLoginMessage("");
-                }}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">كلمة المرور</label>
-              <div className="password-box">
+            {screen === "signup" && (
+              <div className="field">
+                <label htmlFor="display-name">الاسم الظاهر</label>
                 <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="أدخل كلمة المرور"
+                  id="display-name"
+                  name="displayName"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="الاسم الكامل"
                   required
-                  minLength={8}
-                  aria-describedby="form-message"
-                  value={password}
-                  aria-invalid={loginMessage.includes("8 أحرف") || undefined}
+                  maxLength={80}
+                  value={displayName}
                   onChange={(event) => {
-                    setPassword(event.target.value);
+                    setDisplayName(event.target.value);
                     setLoginMessage("");
+                    setSuccessMessage("");
                   }}
                 />
-                <button
-                  className="toggle-pass"
-                  type="button"
-                  aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
-                  aria-pressed={showPassword}
-                  onClick={() => setShowPassword((showing) => !showing)}
-                >
-                  {showPassword ? "إخفاء" : "إظهار"}
-                </button>
               </div>
-            </div>
-            <div className="meta">
-              <label className="remember">
-                <input type="checkbox" name="remember" /> تذكرني
-              </label>
-              <a
-                className="help-link"
-                href="mailto:it-support@example.com?subject=استعادة%20الوصول"
-              >
-                هل نسيت كلمة المرور؟
-              </a>
-            </div>
+            )}
+            {screen !== "reset" && (
+              <div className="field">
+                <label htmlFor="email">البريد الإلكتروني</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="name@company.com"
+                  required
+                  aria-describedby="form-message"
+                  value={email}
+                  aria-invalid={loginMessage.includes("بريد إلكتروني") || undefined}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setLoginMessage("");
+                  setSuccessMessage("");
+                  }}
+                />
+              </div>
+            )}
+            {screen !== "forgot" && (
+              <div className="field">
+                <label htmlFor="password">{screen === "reset" ? "كلمة المرور الجديدة" : "كلمة المرور"}</label>
+                <div className="password-box">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete={screen === "login" ? "current-password" : "new-password"}
+                    placeholder={screen === "login" ? "أدخل كلمة المرور" : "٨ أحرف على الأقل"}
+                    required
+                    minLength={8}
+                    aria-describedby="form-message"
+                    value={password}
+                    aria-invalid={loginMessage.includes("8 أحرف") || undefined}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      setLoginMessage("");
+                      setSuccessMessage("");
+                    }}
+                  />
+                  <button
+                    className="toggle-pass"
+                    type="button"
+                    aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((showing) => !showing)}
+                  >
+                    {showPassword ? "إخفاء" : "إظهار"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {screen === "login" && (
+              <div className="meta">
+                <label className="remember">
+                  <input type="checkbox" name="remember" /> تذكرني
+                </label>
+                <a className="help-link" href="/forgot-password">
+                  هل نسيت كلمة المرور؟
+                </a>
+              </div>
+            )}
             <button className="submit" type="submit" aria-busy={loginLoading} disabled={loginLoading}>
               <span className="spinner" aria-hidden="true" />
-              <span className="button-label">دخول إلى مساحة العمل</span>
+              <span className="button-label">
+                {loginLoading
+                  ? "جارٍ التحقق…"
+                  : screen === "signup"
+                    ? "إنشاء الحساب"
+                    : screen === "forgot"
+                      ? "إرسال رابط الاستعادة"
+                      : screen === "reset"
+                        ? "تحديث كلمة المرور"
+                        : "دخول إلى مساحة العمل"}
+              </span>
             </button>
             <p className={`message${loginMessage ? " error" : ""}`} id="form-message" role="status" aria-live="polite">
               {loginMessage}
             </p>
+            {successMessage && <p className="message success" role="status">{successMessage}</p>}
           </form>
+          <p className="auth-switch">
+            {screen === "signup" ? "لديك حساب بالفعل؟ " : screen === "login" ? "ليس لديك حساب؟ " : "تذكرت كلمة المرور؟ "}
+            <a href={screen === "signup" ? "/" : screen === "login" ? "/signup" : "/"}>
+              {screen === "login" ? "إنشاء حساب" : "سجّل الدخول"}
+            </a>
+          </p>
           <div className="secure">
             <LockIcon />
-            نسخة معاينة — التحقق من الحساب سيُضاف لاحقًا
+            {authConfigured ? "اتصال آمن بخدمة المصادقة" : "أضف إعدادات Supabase لتفعيل المصادقة"}
           </div>
         </div>
       </section>
@@ -616,27 +645,19 @@ export default function HandOverApp() {
             Hand Over
           </div>
           <div className="dash-user">
-            <span>المستخدم الحالي</span>
-            <select
-              id="user-select"
-              aria-label="المستخدم الحالي"
-              value={currentUser}
-              onChange={(event) => setCurrentUser(event.target.value)}
-            >
-              <option>خالد</option>
-              <option>ناصر</option>
-              <option>سارة</option>
-            </select>
-            <button className="logout" type="button" onClick={() => setIsDashboard(false)}>
+            <span>{currentUser}{initialUser?.email ? ` · ${initialUser.email}` : ""}</span>
+            <button className="logout" type="button" onClick={handleLogout}>
               تسجيل الخروج
             </button>
           </div>
         </header>
 
         <div className="dash-main">
-          <div className="demo-banner">
-            معاينة تفاعلية: تُحفظ التغييرات في هذا المتصفح فقط. تسجيل الدخول والمزامنة بين المستخدمين وقاعدة البيانات ستُضاف في مراحل لاحقة.
-          </div>
+          {notice && (
+            <p className={`app-notice${/(تعذر|لا تملك|لم يُحذف|حدث خطأ|مشكلة)/.test(notice) ? " error" : ""}`} role="status" aria-live="polite">
+              {notice}
+            </p>
+          )}
           <div className="dash-heading">
             <div>
               <p className="dash-eyebrow">تسليم المناوبة</p>
@@ -673,7 +694,7 @@ export default function HandOverApp() {
             </div>
           </div>
           <div className="events-grid" id="events-grid" aria-live="polite">
-            {!storageLoaded ? null : visibleRecords.length ? (
+            {visibleRecords.length ? (
               visibleRecords.map((record) => (
                 <article
                   className="event-card"
@@ -717,7 +738,7 @@ export default function HandOverApp() {
                       .slice()
                       .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
                       .map((entry, index) => (
-                        <div className="timeline-item" key={`${record.id}-${entry.at}-${index}`}>
+                        <div className="timeline-item" key={entry.id || `${record.id}-${entry.at}-${index}`}>
                           <div className="timeline-head">
                             <strong>{entry.author}</strong>
                             <time>{formatTime(entry.at)}</time>
@@ -727,15 +748,22 @@ export default function HandOverApp() {
                       ))}
                   </div>
                   <div className="card-actions">
-                    <button className="small-action" data-action="update" type="button" onClick={() => openDialog("update", record)}>
+                    <button className="small-action" data-action="update" type="button" disabled={pendingRecordId === record.id} onClick={() => openDialog("update", record)}>
                       ＋ إضافة تحديث
                     </button>
-                    <button className="small-action" data-action="edit" type="button" onClick={() => openDialog("edit", record)}>
-                      تعديل الحدث
-                    </button>
-                    <button className="small-action" data-action="status" type="button" onClick={() => toggleStatus(record.id)}>
-                      {record.status === "open" ? "إغلاق الحدث" : "إعادة فتحه"}
-                    </button>
+                    {record.creatorId === initialUser?.id && (
+                      <>
+                        <button className="small-action" data-action="edit" type="button" disabled={pendingRecordId === record.id} onClick={() => openDialog("edit", record)}>
+                          تعديل الحدث
+                        </button>
+                        <button className="small-action" data-action="status" type="button" disabled={pendingRecordId === record.id} onClick={() => void toggleStatus(record)}>
+                          {record.status === "open" ? "إغلاق الحدث" : "إعادة فتحه"}
+                        </button>
+                        <button className="small-action danger" data-action="delete" type="button" disabled={pendingRecordId === record.id} onClick={() => void deleteEvent(record)}>
+                          {pendingRecordId === record.id ? "جارٍ الحذف…" : "حذف الحدث"}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </article>
               ))
@@ -801,8 +829,8 @@ export default function HandOverApp() {
             />
           </div>
           <div className="dialog-actions">
-            <button className="primary-action" type="submit">
-              {dialogIsUpdate ? "إضافة التحديث" : "حفظ الحدث"}
+            <button className="primary-action" type="submit" disabled={Boolean(pendingRecordId)}>
+              {pendingRecordId ? "جارٍ الحفظ…" : dialogIsUpdate ? "إضافة التحديث" : "حفظ الحدث"}
             </button>
             <button className="secondary-action" type="button" onClick={() => dialogRef.current?.close()}>
               إلغاء
